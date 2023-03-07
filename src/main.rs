@@ -66,10 +66,6 @@ impl<'a> Iterator for Lexer<'a> {
     }
 }
 
-// fn index_document(content: &str) -> HashMap<String, usize> {
-//     todo!();
-// }
-
 fn read_entire_xml_file<P: AsRef<Path>>(file_path: P) -> io::Result<String> {
     let file = File::open(file_path)?;
     let er = EventReader::new(file);
