@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::env;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::exit;
 use xml::reader::{EventReader, XmlEvent};
 
 #[derive(Debug)]
@@ -86,8 +88,7 @@ fn read_entire_xml_file<P: AsRef<Path>>(file_path: P) -> io::Result<String> {
 type TermFreq = HashMap<String, usize>;
 type TermFreqIndex = HashMap<PathBuf, TermFreq>;
 
-fn main() -> io::Result<()> {
-    let index_path = "index.json";
+fn check_index(index_path: &str) -> io::Result<()> {
     let index_file = File::open(index_path)?;
     println!("Reading {index_path}.....");
     let tf_index: TermFreqIndex = serde_json::from_reader(index_file).expect("serde error");
@@ -98,8 +99,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn main2() -> io::Result<()> {
-    let dir_path = "docs.gl/gl4/";
+fn index_folder(dir_path: &str) -> io::Result<()> {
     let dir = fs::read_dir(dir_path)?;
     let mut tf_index = TermFreqIndex::new();
 
@@ -134,13 +134,51 @@ fn main2() -> io::Result<()> {
     }
 
     println!("-----------------------------------------------");
-    // for (path, tf) in tf_index {
-    //     println!("{path:?} has {count} unique tokens", count = tf.len())
-    // }
     let index_path = "index.json";
     println!("Saving {index_path}......");
     let index_file = File::create(index_path)?;
     serde_json::to_writer(index_file, &tf_index).expect("Expect serde works");
 
     Ok(())
+}
+
+fn main() {
+    let mut args = env::args();
+    let _program = args.next().expect("path to program is provided");
+
+    let subcommand = args.next().unwrap_or_else(|| {
+        println!("ERROR: No subcommand is provided");
+        exit(1)
+    });
+
+    match subcommand.as_str() {
+        "index" => {
+            let dir_path = args.next().unwrap_or_else(|| {
+                println!("ERROR: no directory is provided for {subcommand}");
+                exit(1)
+            });
+
+            index_folder(&dir_path).unwrap_or_else(|err| {
+                println!("ERROR: could not index folder {dir_path}: {err}");
+                exit(1)
+            });
+        }
+
+        "search" => {
+            let index_path = args.next().unwrap_or_else(|| {
+                println!("ERROR: No subcommand is provided");
+                exit(1)
+            });
+
+            check_index(&index_path).unwrap_or_else(|err| {
+                println!("ERROR: could not check index file {index_path}: {err}");
+                exit(1)
+            });
+        }
+
+        _ => {
+            println!("ERROR: unknow subcommand {subcommand}");
+            exit(1)
+        }
+    }
 }
