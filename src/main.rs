@@ -99,18 +99,6 @@ fn main() -> io::Result<()> {
 }
 
 fn main2() -> io::Result<()> {
-    let index_path = "index.json";
-    let index_file = File::open(index_path)?;
-    println!("Reading {index_path}.....");
-    let tf_index: TermFreqIndex = serde_json::from_reader(index_file).expect("serde error");
-    println!(
-        "{index_path} contains {count} files",
-        count = tf_index.len()
-    );
-    Ok(())
-}
-
-fn main2() -> io::Result<()> {
     let dir_path = "docs.gl/gl4/";
     let dir = fs::read_dir(dir_path)?;
     let mut tf_index = TermFreqIndex::new();
