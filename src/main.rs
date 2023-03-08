@@ -4,6 +4,7 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::result::Result;
+use tiny_http::{Response, Server};
 use xml::common::{Position, TextPosition};
 use xml::reader::{EventReader, XmlEvent};
 
@@ -191,9 +192,10 @@ fn usage(program: &str) {
     eprintln!("Usage: {program} [SUBCOMMAND] [OPTIONS]");
     eprintln!("Subcommands:");
     eprintln!(
-        "    index <folder>         index the <folder> and save the index to index.json file"
+        "    index  <folder>         index the <folder> and save the index to index.json file"
     );
-    eprintln!("    search <index-file>    check how many documents are indexed in the file (searching is not implemented yet)");
+    eprintln!("    search <index-file>    check how many documents are indexed in the file");
+    eprintln!("    serve  [address]       start local HTTP server with Web Interface");
 }
 
 fn entry() -> Result<(), ()> {
@@ -223,6 +225,29 @@ fn entry() -> Result<(), ()> {
             })?;
 
             check_index(&index_path)?;
+        }
+        "serve" => {
+            let address = args.next().unwrap_or("127.0.0.1:8000".to_owned());
+
+            let server = Server::http(&address).map_err(|err| {
+                eprintln!("ERROR: conuld not start HTTP server at {address}: {err}");
+            })?;
+
+            println!("INFO: listening at http://{address}/");
+
+            for request in server.incoming_requests() {
+                println!(
+                    "INFO: received request! method: {:?}, url: {:?}",
+                    request.method(),
+                    request.url()
+                );
+                let response = Response::from_string("Hello, world");
+                request
+                    .respond(response)
+                    .unwrap_or_else(|err| eprintln!("ERROR: could not serve a request: {err}"));
+            }
+
+            todo!("not implemented")
         }
         _ => {
             usage(&program);
