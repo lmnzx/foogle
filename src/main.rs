@@ -10,7 +10,6 @@ use xml::reader::{EventReader, XmlEvent};
 
 #[derive(Debug)]
 struct Lexer<'a> {
-    //* lexer is just a reslicer
     content: &'a [char],
 }
 
@@ -189,6 +188,24 @@ fn tf_index_of_folder(dir_path: &Path, tf_index: &mut TermFreqIndex) -> Result<(
     Ok(())
 }
 
+fn tf(term: &str, document: &TermFreq) -> f32 {
+    document.get(term).cloned().unwrap_or(0) as f32
+        / document
+            .iter()
+            .map(|(_term, frequency)| *frequency)
+            .sum::<usize>() as f32
+}
+
+fn idf(term: &str, document: &TermFreqIndex) -> f32 {
+    (document.len() as f32
+        / document
+            .values()
+            .filter(|tf| tf.contains_key(term))
+            .count()
+            .max(1) as f32)
+        .log10()
+}
+
 fn usage(program: &str) {
     eprintln!("Usage: {program} [SUBCOMMAND] [OPTIONS]");
     eprintln!("Subcommands:");
@@ -216,7 +233,7 @@ fn serve_static_file(request: Request, file_path: &str, content_type: &str) -> R
         .map_err(|err| eprintln!("ERROR: could not serve static file {file_path:?}: {err}"))
 }
 
-fn serve_request(mut request: Request) -> Result<(), ()> {
+fn serve_request(tf_index: &TermFreqIndex, mut request: Request) -> Result<(), ()> {
     println!(
         "INFO: received request! method: {:?}, url: {:?}",
         request.method(),
@@ -236,16 +253,36 @@ fn serve_request(mut request: Request) -> Result<(), ()> {
 
             let content = content.chars().collect::<Vec<_>>();
 
-            for token in Lexer::new(&content) {
-                println!("{token:?}")
+            let mut result = Vec::<(&Path, f32)>::new();
+
+            for (path, tf_table) in tf_index {
+                let mut rank = 0f32;
+
+                for token in Lexer::new(&content) {
+                    rank += tf(&token, &tf_table) * idf(&token, &tf_index);
+                }
+                result.push((path, rank));
             }
 
-            let json = serde_json::to_string(r#"{"response": "got ur request boss 👍🏻"}"#)
-                .map_err(|err| eprintln!("ERROR: could on parse the json: {err}"));
+            result.sort_by(|(_, rank1), (_, rank2)| rank1.partial_cmp(rank2).unwrap());
+            result.reverse();
 
-            request
-                .respond(Response::from_string(json.unwrap()))
-                .map_err(|err| eprintln!("ERROR: {err}"))
+            for (path, rank) in result.iter().take(10) {
+                println!("{path} => {rank}", path = path.display())
+            }
+            let json = serde_json::to_string(&result.iter().take(20).collect::<Vec<_>>()).map_err(
+                |err| {
+                    eprintln!("ERROR: could not convert search results to JSON: {err}");
+                },
+            )?;
+
+            let content_type_header = Header::from_bytes("Content-Type", "application/json")
+                .expect("That we didn't put any garbage in the headers");
+            let response = Response::from_string(&json).with_header(content_type_header);
+
+            request.respond(response).map_err(|err| {
+                eprintln!("ERROR: could not serve a request {err}");
+            })
         }
         (Method::Get, "/index.js") => {
             serve_static_file(request, "index.js", "text/javascript; charset=utf-8")
@@ -286,6 +323,21 @@ fn entry() -> Result<(), ()> {
             check_index(&index_path)?;
         }
         "serve" => {
+            let index_path = args.next().ok_or_else(|| {
+                usage(&program);
+                eprintln!("ERROR: no path to index is provided for {subcommand} subcommand");
+            })?;
+
+            println!("Reading {index_path} index file...");
+
+            let index_file = File::open(&index_path).map_err(|err| {
+                eprintln!("ERROR: could not open index file {index_path}: {err}");
+            })?;
+
+            let tf_index: TermFreqIndex = serde_json::from_reader(index_file).map_err(|err| {
+                eprintln!("ERROR: could not parse index file {index_path}: {err}");
+            })?;
+
             let address = args.next().unwrap_or("127.0.0.1:8000".to_owned());
 
             let server = Server::http(&address).map_err(|err| {
@@ -295,7 +347,7 @@ fn entry() -> Result<(), ()> {
             println!("INFO: listening at http://{address}/");
 
             for request in server.incoming_requests() {
-                serve_request(request)?;
+                serve_request(&tf_index, request)?;
             }
 
             todo!("not implemented")
