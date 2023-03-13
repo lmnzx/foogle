@@ -42,26 +42,31 @@ impl<'a> Lexer<'a> {
         self.chop(n)
     }
 
-    fn next_token(&mut self) -> Option<&'a [char]> {
+    fn next_token(&mut self) -> Option<String> {
         self.trim_left();
         if self.content.len() == 0 {
             return None;
         }
 
         if self.content[0].is_numeric() {
-            return Some(self.chop_while(|x| x.is_numeric()));
+            return Some(self.chop_while(|x| x.is_numeric()).iter().collect());
         }
 
         if self.content[0].is_alphabetic() {
-            return Some(self.chop_while(|x| x.is_alphanumeric()));
+            return Some(
+                self.chop_while(|x| x.is_alphanumeric())
+                    .iter()
+                    .map(|x| x.to_ascii_uppercase())
+                    .collect(),
+            );
         }
 
-        return Some(self.chop(1));
+        return Some(self.chop(1).iter().collect());
     }
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = &'a [char];
+    type Item = String;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.next_token()
@@ -170,11 +175,7 @@ fn tf_index_of_folder(dir_path: &Path, tf_index: &mut TermFreqIndex) -> Result<(
 
         let mut tf = TermFreq::new();
 
-        for token in Lexer::new(&content) {
-            let term = token
-                .iter()
-                .map(|x| x.to_ascii_uppercase())
-                .collect::<String>();
+        for term in Lexer::new(&content) {
             if let Some(freq) = tf.get_mut(&term) {
                 *freq += 1;
             } else {
@@ -191,11 +192,9 @@ fn tf_index_of_folder(dir_path: &Path, tf_index: &mut TermFreqIndex) -> Result<(
 fn usage(program: &str) {
     eprintln!("Usage: {program} [SUBCOMMAND] [OPTIONS]");
     eprintln!("Subcommands:");
-    eprintln!(
-        "    index  <folder>         index the <folder> and save the index to index.json file"
-    );
-    eprintln!("    search <index-file>    check how many documents are indexed in the file");
-    eprintln!("    serve  [address]       start local HTTP server with Web Interface");
+    eprintln!("    index <folder>                  index the <folder> and save the index to index.json file");
+    eprintln!("    search <index-file>             check how many documents are indexed in the file (searching is not implemented yet)");
+    eprintln!("    serve <index-file> [address]    start local HTTP server with Web Interface");
 }
 
 fn serve_404(request: Request) -> Result<(), ()> {
@@ -217,7 +216,7 @@ fn serve_static_file(request: Request, file_path: &str, content_type: &str) -> R
         .map_err(|err| eprintln!("ERROR: could not serve static file {file_path:?}: {err}"))
 }
 
-fn serve_request(request: Request) -> Result<(), ()> {
+fn serve_request(mut request: Request) -> Result<(), ()> {
     println!(
         "INFO: received request! method: {:?}, url: {:?}",
         request.method(),
@@ -225,6 +224,29 @@ fn serve_request(request: Request) -> Result<(), ()> {
     );
 
     match (request.method(), request.url()) {
+        (Method::Post, "/api/search") => {
+            let mut content = String::new();
+
+            request
+                .as_reader()
+                .read_to_string(&mut content)
+                .map_err(|err| {
+                    eprintln!("ERROR: could not interpret body as UTF-8 string: {err}")
+                })?;
+
+            let content = content.chars().collect::<Vec<_>>();
+
+            for token in Lexer::new(&content) {
+                println!("{token:?}")
+            }
+
+            let json = serde_json::to_string(r#"{"response": "got ur request boss 👍🏻"}"#)
+                .map_err(|err| eprintln!("ERROR: could on parse the json: {err}"));
+
+            request
+                .respond(Response::from_string(json.unwrap()))
+                .map_err(|err| eprintln!("ERROR: {err}"))
+        }
         (Method::Get, "/index.js") => {
             serve_static_file(request, "index.js", "text/javascript; charset=utf-8")
         }
