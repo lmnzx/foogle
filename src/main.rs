@@ -1,5 +1,6 @@
 use std::env;
 use std::fs::{self, File};
+use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use std::process::ExitCode;
 use std::result::Result;
@@ -11,7 +12,6 @@ use foogle::model::{search_query, Lexer, TermFreq, TermFreqIndex};
 use foogle::server;
 
 // TODO: Add multiple file support
-// TODO: Refactor
 
 fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
     let file = File::open(file_path).map_err(|err| {
@@ -20,7 +20,7 @@ fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
             file_path = file_path.display()
         );
     })?;
-    let er = EventReader::new(file);
+    let er = EventReader::new(BufReader::new(file));
     let mut content = String::new();
     for event in er.into_iter() {
         let event = event.map_err(|err| {
@@ -47,7 +47,7 @@ fn save_tf_index(tf_index: &TermFreqIndex, index_path: &str) -> Result<(), ()> {
         eprintln!("ERROR: could not create index file {index_path}: {err}");
     })?;
 
-    serde_json::to_writer(index_file, &tf_index).map_err(|err| {
+    serde_json::to_writer(BufWriter::new(index_file), &tf_index).map_err(|err| {
         eprintln!("ERROR: could not serialize index into file {index_path}: {err}");
     })?;
 
@@ -133,7 +133,7 @@ fn entry() -> Result<(), ()> {
 
             let mut tf_index = TermFreqIndex::new();
             tf_index_of_folder(Path::new(&dir_path), &mut tf_index)?;
-            save_tf_index(&tf_index, "index.json")?;
+            save_tf_index(&tf_index, "index.json")
         }
         "search" => {
             let index_path = args.next().ok_or_else(|| {
@@ -161,6 +161,8 @@ fn entry() -> Result<(), ()> {
             for (path, rank) in search_query(&tf_index, &prompt).iter().take(20) {
                 println!("{path} {rank}", path = path.display());
             }
+
+            Ok(())
         }
         "serve" => {
             let index_path = args.next().ok_or_else(|| {
@@ -180,16 +182,14 @@ fn entry() -> Result<(), ()> {
 
             let address = args.next().unwrap_or("127.0.0.1:8000".to_owned());
 
-            return server::start(&address, &tf_index);
+            server::start(&address, &tf_index)
         }
         _ => {
             usage(&program);
             eprintln!("ERROR: unknown subcommand {subcommand}");
-            return Err(());
+            Err(())
         }
     }
-
-    Ok(())
 }
 
 fn main() -> ExitCode {
