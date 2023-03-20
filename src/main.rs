@@ -11,8 +11,6 @@ use xml::reader::{EventReader, XmlEvent};
 use foogle::model::{search_query, Lexer, Model, TermFreq};
 use foogle::server;
 
-// TODO: Add multiple file support
-
 fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
     let file = File::open(file_path).map_err(|err| {
         eprintln!(
